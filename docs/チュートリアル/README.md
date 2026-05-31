@@ -508,57 +508,21 @@ var todoItems = app.MapGroup("/todoitems");
 たとえば、TODO API は次のように書き換えられます。
 
 ```csharp
-var todoItems = app.MapGroup("/todoitems");
+RouteGroupBuilder todoItems = app.MapGroup("/todoitems");
 
-todoItems.MapGet("/", async (TodoDb db) =>
-    await db.Todos.ToListAsync());
-
-todoItems.MapGet("/complete", async (TodoDb db) =>
-    await db.Todos.Where(t => t.IsComplete).ToListAsync());
-
-todoItems.MapGet("/{id}", async (int id, TodoDb db) =>
-    await db.Todos.FindAsync(id)
-        is Todo todo
-            ? Results.Ok(todo)
-            : Results.NotFound());
-
-todoItems.MapPost("/", async (Todo todo, TodoDb db) =>
-{
-    db.Todos.Add(todo);
-    await db.SaveChangesAsync();
-
-    return Results.Created($"/todoitems/{todo.Id}", todo);
-});
-
-todoItems.MapPut("/{id}", async (int id, Todo inputTodo, TodoDb db) =>
-{
-    var todo = await db.Todos.FindAsync(id);
-
-    if (todo is null) return Results.NotFound();
-
-    todo.Name = inputTodo.Name;
-    todo.IsComplete = inputTodo.IsComplete;
-
-    await db.SaveChangesAsync();
-
-    return Results.NoContent();
-});
-
-todoItems.MapDelete("/{id}", async (int id, TodoDb db) =>
-{
-    if (await db.Todos.FindAsync(id) is Todo todo)
-    {
-        db.Todos.Remove(todo);
-        await db.SaveChangesAsync();
-        return Results.NoContent();
-    }
-
-    return Results.NotFound();
-});
+todoItems.MapGet("/", GetAllTodos);
+todoItems.MapGet("/complete", GetCompleteTodos);
+todoItems.MapGet("/{id}", GetTodo);
+todoItems.MapPost("/", CreateTodo);
+todoItems.MapPut("/{id}", UpdateTodo);
+todoItems.MapDelete("/{id}", DeleteTodo);
 ```
 
-`todoItems.MapGet("/", ...)` は、実際には `GET /todoitems` になります。
-`todoItems.MapGet("/{id}", ...)` は、実際には `GET /todoitems/{id}` になります。
+`todoItems.MapGet("/", GetAllTodos)` は、実際には `GET /todoitems` になります。
+`todoItems.MapGet("/{id}", GetTodo)` は、実際には `GET /todoitems/{id}` になります。
+
+この形にすると、`Program.cs` の上側では「どの URL がどのメソッドにつながるか」だけを一覧できます。
+実際の処理は `GetAllTodos`、`CreateTodo`、`UpdateTodo` などのメソッド側に分けて書けます。
 
 `MapGroup` を使う利点は次のとおりです。
 
@@ -580,14 +544,16 @@ var todoItems = app.MapGroup("/todoitems")
 これまでのコードでは、`Results.Ok(...)` や `Results.NotFound()` のように `Results` を使ってレスポンスを返していました。
 
 ```csharp
-app.MapGet("/todoitems/{id}", async (int id, TodoDb db) =>
-    await db.Todos.FindAsync(id)
+static async Task<IResult> GetTodo(int id, TodoDb db)
+{
+    return await db.Todos.FindAsync(id)
         is Todo todo
             ? Results.Ok(todo)
-            : Results.NotFound());
+            : Results.NotFound();
+}
 ```
 
-`Results` は便利ですが、戻り値の具体的な型は `IResult` として扱われます。
+`Results` は便利ですが、このメソッドの戻り値は `IResult` として扱われます。
 一方、`TypedResults` を使うと、`Ok<Todo>` や `NotFound` のような具体的な結果型を返せます。
 
 ざっくり言うと、どちらも HTTP レスポンスを作るための API です。
@@ -598,31 +564,36 @@ app.MapGet("/todoitems/{id}", async (int id, TodoDb db) =>
 | `Results.Ok(todo)` | `IResult` として扱われる | まず動かしたい、シンプルに書きたい |
 | `TypedResults.Ok(todo)` | `Ok<Todo>` として扱われる | 戻り値の種類を明確にしたい、OpenAPI 情報を分かりやすくしたい |
 
-たとえば、次のコードは「TODO があれば `200 OK`、なければ `404 Not Found`」を返します。
+たとえば、`GetTodo` メソッドは「TODO があれば `200 OK`、なければ `404 Not Found`」を返します。
+`Results` を使う素朴な形では、次のように `Task<IResult>` として書けます。
 
 ```csharp
-app.MapGet("/todoitems/{id}", async (int id, TodoDb db) =>
-    await db.Todos.FindAsync(id)
+static async Task<IResult> GetTodo(int id, TodoDb db)
+{
+    return await db.Todos.FindAsync(id)
         is Todo todo
             ? Results.Ok(todo)
-            : Results.NotFound());
+            : Results.NotFound();
+}
 ```
 
 このコードは短くて読みやすいです。
 ただし C# から見ると、`Results.Ok(todo)` も `Results.NotFound()` も大きくは `IResult` として扱われます。
-つまり「このエンドポイントが `Ok<Todo>` と `NotFound` を返す」という情報は、コードの型としてはあまり強く残りません。
+つまり「このメソッドが `Ok<Todo>` と `NotFound` を返す」という情報は、コードの型としてはあまり強く残りません。
 
 同じ処理を `TypedResults` で書くと、次のようになります。
 
 ```csharp
-app.MapGet("/todoitems/{id}", async Task<Results<Ok<Todo>, NotFound>> (int id, TodoDb db) =>
-    await db.Todos.FindAsync(id)
+static async Task<Results<Ok<Todo>, NotFound>> GetTodo(int id, TodoDb db)
+{
+    return await db.Todos.FindAsync(id)
         is Todo todo
             ? TypedResults.Ok(todo)
-            : TypedResults.NotFound());
+            : TypedResults.NotFound();
+}
 ```
 
-この例では、エンドポイントが返す可能性のある結果を `Results<Ok<Todo>, NotFound>` として明示しています。
+この例では、メソッドが返す可能性のある結果を `Results<Ok<Todo>, NotFound>` として明示しています。
 つまり、この API は次のどちらかを返すとコード上で分かります。
 
 - `Ok<Todo>`: TODO が見つかった場合の `200 OK`
@@ -638,43 +609,38 @@ using Microsoft.AspNetCore.Http.HttpResults;
 
 ```csharp
 static async Task<Results<Ok<TodoItemDTO>, NotFound>> GetTodo(int id, TodoDb db)
+{
+    return await db.Todos.FindAsync(id)
+        is Todo todo
+            ? TypedResults.Ok(new TodoItemDTO(todo))
+            : TypedResults.NotFound();
+}
 ```
 
-使い分けの目安は次のように考えると分かりやすいです。
-
-- 学習中や小さなサンプルでは `Results` で十分
-- 戻り値の種類を厳密に書きたい場合は `TypedResults`
-- Swagger / OpenAPI にレスポンス型を分かりやすく出したい場合は `TypedResults`
-- チーム開発で「この API は何を返すのか」をコードから読み取りやすくしたい場合は `TypedResults`
-
-`POST` のエンドポイントも `TypedResults` を使って書けます。
+`POST` の `CreateTodo` メソッドも、`TypedResults` を使って書けます。
 
 ```csharp
-app.MapPost("/todoitems", async (Todo todo, TodoDb db) =>
+static async Task<Created<TodoItemDTO>> CreateTodo(TodoItemDTO todoItemDTO, TodoDb db)
 {
-    db.Todos.Add(todo);
+    var todoItem = new Todo
+    {
+        IsComplete = todoItemDTO.IsComplete,
+        Name = todoItemDTO.Name
+    };
+
+    db.Todos.Add(todoItem);
     await db.SaveChangesAsync();
 
-    return TypedResults.Created($"/todoitems/{todo.Id}", todo);
-});
+    todoItemDTO = new TodoItemDTO(todoItem);
+
+    return TypedResults.Created($"/todoitems/{todoItem.Id}", todoItemDTO);
+}
 ```
 
-戻り値の型まで明示する場合は、次のように書けます。
+`DELETE` のように、成功時は `204 No Content`、対象がない場合は `404 Not Found` を返すメソッドでは、次のように書けます。
 
 ```csharp
-app.MapPost("/todoitems", async Task<Created<Todo>> (Todo todo, TodoDb db) =>
-{
-    db.Todos.Add(todo);
-    await db.SaveChangesAsync();
-
-    return TypedResults.Created($"/todoitems/{todo.Id}", todo);
-});
-```
-
-`PUT` や `DELETE` のように、成功時は `204 No Content`、対象がない場合は `404 Not Found` を返すエンドポイントでは、次のように書けます。
-
-```csharp
-app.MapDelete("/todoitems/{id}", async Task<Results<NoContent, NotFound>> (int id, TodoDb db) =>
+static async Task<Results<NoContent, NotFound>> DeleteTodo(int id, TodoDb db)
 {
     if (await db.Todos.FindAsync(id) is Todo todo)
     {
@@ -684,7 +650,15 @@ app.MapDelete("/todoitems/{id}", async Task<Results<NoContent, NotFound>> (int i
     }
 
     return TypedResults.NotFound();
-});
+}
+```
+
+`MapGroup` 側は、これまでと同じようにメソッド名を渡すだけです。
+
+```csharp
+todoItems.MapGet("/{id}", GetTodo);
+todoItems.MapPost("/", CreateTodo);
+todoItems.MapDelete("/{id}", DeleteTodo);
 ```
 
 `TypedResults` を使う利点は次のとおりです。
@@ -695,20 +669,20 @@ app.MapDelete("/todoitems/{id}", async Task<Results<NoContent, NotFound>> (int i
 - 大きな API でも、成功時とエラー時の戻り値を整理しやすい
 
 学習の最初は `Results` でも十分です。
-API の戻り値をより厳密に扱いたくなったら、`TypedResults` に置き換えていくと理解しやすいです。
+API の戻り値をより厳密に扱いたくなったら、メソッド側の戻り値を `TypedResults` に置き換えていくと理解しやすいです。
 
 ## 過剰な投稿を防止する DTO モデル
 
 ここまでの例では、リクエスト本文を直接 `Todo` モデルで受け取っています。
 
 ```csharp
-app.MapPost("/todoitems", async (Todo todo, TodoDb db) =>
+static async Task<IResult> CreateTodo(Todo todo, TodoDb db)
 {
     db.Todos.Add(todo);
     await db.SaveChangesAsync();
 
     return Results.Created($"/todoitems/{todo.Id}", todo);
-});
+}
 ```
 
 学習用の小さな API ではこれでも動きます。
@@ -767,28 +741,32 @@ public class TodoItemDTO
 `GET` では、データベースから取得した `Todo` を DTO に変換して返します。
 
 ```csharp
-app.MapGet("/todoitems", async (TodoDb db) =>
-    await db.Todos
+static async Task<Ok<TodoItemDTO[]>> GetAllTodos(TodoDb db)
+{
+    return TypedResults.Ok(await db.Todos
         .Select(todo => new TodoItemDTO(todo))
-        .ToListAsync());
+        .ToArrayAsync());
+}
 ```
 
 `POST` では、リクエスト本文を `TodoItemDTO` で受け取り、保存用の `Todo` を API 側で作ります。
 
 ```csharp
-app.MapPost("/todoitems", async (TodoItemDTO todoItemDTO, TodoDb db) =>
+static async Task<Created<TodoItemDTO>> CreateTodo(TodoItemDTO todoItemDTO, TodoDb db)
 {
-    var todo = new Todo
+    var todoItem = new Todo
     {
         Name = todoItemDTO.Name,
         IsComplete = todoItemDTO.IsComplete
     };
 
-    db.Todos.Add(todo);
+    db.Todos.Add(todoItem);
     await db.SaveChangesAsync();
 
-    return Results.Created($"/todoitems/{todo.Id}", new TodoItemDTO(todo));
-});
+    todoItemDTO = new TodoItemDTO(todoItem);
+
+    return TypedResults.Created($"/todoitems/{todoItem.Id}", todoItemDTO);
+}
 ```
 
 この書き方では、クライアントが `Id` を送ってきても保存用の `Todo` にはコピーしていません。
@@ -797,19 +775,19 @@ app.MapPost("/todoitems", async (TodoItemDTO todoItemDTO, TodoDb db) =>
 `PUT` でも同じように、更新してよいプロパティだけをコピーします。
 
 ```csharp
-app.MapPut("/todoitems/{id}", async (int id, TodoItemDTO inputTodo, TodoDb db) =>
+static async Task<Results<NoContent, NotFound>> UpdateTodo(int id, TodoItemDTO todoItemDTO, TodoDb db)
 {
     var todo = await db.Todos.FindAsync(id);
 
-    if (todo is null) return Results.NotFound();
+    if (todo is null) return TypedResults.NotFound();
 
-    todo.Name = inputTodo.Name;
-    todo.IsComplete = inputTodo.IsComplete;
+    todo.Name = todoItemDTO.Name;
+    todo.IsComplete = todoItemDTO.IsComplete;
 
     await db.SaveChangesAsync();
 
-    return Results.NoContent();
-});
+    return TypedResults.NoContent();
+}
 ```
 
 DTO を使う利点は次のとおりです。
