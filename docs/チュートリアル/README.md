@@ -749,6 +749,18 @@ static async Task<Ok<TodoItemDTO[]>> GetAllTodos(TodoDb db)
 }
 ```
 
+完了済みの TODO だけを返す `GetCompleteTodos` でも、同じように DTO に変換して返します。
+
+```csharp
+static async Task<Ok<List<TodoItemDTO>>> GetCompleteTodos(TodoDb db)
+{
+    return TypedResults.Ok(await db.Todos
+        .Where(t => t.IsComplete)
+        .Select(todo => new TodoItemDTO(todo))
+        .ToListAsync());
+}
+```
+
 `POST` では、リクエスト本文を `TodoItemDTO` で受け取り、保存用の `Todo` を API 側で作ります。
 
 ```csharp
