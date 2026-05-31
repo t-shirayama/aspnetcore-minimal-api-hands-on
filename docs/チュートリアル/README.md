@@ -125,6 +125,97 @@ class TodoDb : DbContext
 `DbContext` は、データベースとのやり取りをまとめるクラスです。
 `DbSet<Todo>` は、データベース内の TODO テーブルのようなものだと考えると分かりやすいです。
 
+このクラスの中で特に分かりにくいのは、次の 2 か所です。
+
+```csharp
+public TodoDb(DbContextOptions<TodoDb> options)
+    : base(options) { }
+```
+
+これは `TodoDb` のコンストラクターです。
+`TodoDb` が作られるときに、EF Core の設定情報を受け取っています。
+
+`DbContextOptions<TodoDb>` には、たとえば次のような情報が入ります。
+
+- どのデータベースを使うか
+- 接続先はどこか
+- EF Core がどのように `TodoDb` を動かすか
+
+このプロジェクトでは、`Program.cs` の次の行で設定しています。
+
+```csharp
+builder.Services.AddDbContext<TodoDb>(opt => opt.UseInMemoryDatabase("TodoList"));
+```
+
+ここで「`TodoDb` ではインメモリデータベースの `TodoList` を使う」と指定しています。
+その設定が `DbContextOptions<TodoDb> options` として `TodoDb` のコンストラクターに渡されます。
+
+次の `: base(options)` は、受け取った設定を親クラスである `DbContext` に渡す処理です。
+
+```csharp
+: base(options)
+```
+
+`TodoDb` は `DbContext` を継承しています。
+実際にデータベース接続や変更追跡などの基本機能を持っているのは親クラスの `DbContext` です。
+そのため、`TodoDb` が受け取った設定を `DbContext` に渡して、「この設定で動いてください」と伝えています。
+
+コンストラクターの本体が空になっているのは、追加で書く処理がないからです。
+
+```csharp
+{ }
+```
+
+つまり、このコンストラクター全体は次のような意味です。
+
+```text
+TodoDb が作られるときに EF Core の設定を受け取り、
+その設定を親クラスの DbContext に渡す。
+```
+
+もう 1 つは、次のプロパティです。
+
+```csharp
+public DbSet<Todo> Todos => Set<Todo>();
+```
+
+`DbSet<Todo>` は、`Todo` データの集まりを表します。
+SQL データベースで考えるなら、`Todos` テーブルのようなものです。
+
+このプロパティがあることで、`Program.cs` から次のように TODO データを操作できます。
+
+```csharp
+db.Todos.ToListAsync();
+db.Todos.FindAsync(id);
+db.Todos.Add(todo);
+db.Todos.Remove(todo);
+```
+
+右側の `Set<Todo>()` は、親クラス `DbContext` が持っているメソッドです。
+`Todo` 型に対応する `DbSet<Todo>` を取得しています。
+
+つまり、次の 1 行は、
+
+```csharp
+public DbSet<Todo> Todos => Set<Todo>();
+```
+
+次のような意味です。
+
+```text
+Todo 型のデータを操作するための入口を Todos という名前で用意する。
+```
+
+`=>` は式形式のプロパティです。
+短く書くための構文で、次のように書くのと近い意味です。
+
+```csharp
+public DbSet<Todo> Todos
+{
+    get { return Set<Todo>(); }
+}
+```
+
 このプロジェクトでは実際の SQL データベースではなく、メモリ上の `TodoList` というデータベースを使います。
 
 ## Program.cs の全体像
