@@ -333,39 +333,6 @@ app.MapPost("/todoitems", async (Todo todo, TodoDb db) =>
 この場合、送られてきた JSON が `Todo todo` に自動で変換されます。
 つまり `Map<HttpVerb>` は、URL、HTTP メソッド、受け取る値、実行する処理を 1 か所で定義するための API です。
 
-ここまでの例では、処理をラムダ式で直接書いていました。
-しかし `Map<HttpVerb>` の handler には、別に定義したメソッドを渡すこともできます。
-
-```csharp
-app.MapGet("/todoitems", GetAllTodos);
-
-static async Task<List<Todo>> GetAllTodos(TodoDb db)
-{
-    return await db.Todos.ToListAsync();
-}
-```
-
-この書き方でも、`GET /todoitems` にリクエストが来ると `GetAllTodos` メソッドが呼び出されます。
-`TodoDb db` もラムダ式のときと同じように DI から自動で渡されます。
-
-`POST` のようにリクエスト本文を受け取るメソッドも分けられます。
-
-```csharp
-app.MapPost("/todoitems", CreateTodo);
-
-static async Task<IResult> CreateTodo(Todo todo, TodoDb db)
-{
-    db.Todos.Add(todo);
-    await db.SaveChangesAsync();
-
-    return Results.Created($"/todoitems/{todo.Id}", todo);
-}
-```
-
-ラムダ式で書く方法と、メソッドに分ける方法のどちらも正しい書き方です。
-小さい処理ならラムダ式のままでも読みやすいです。
-処理が長くなったり、エンドポイントが増えたりしたら、メソッドに分けると `Program.cs` の見通しがよくなります。
-
 ## GET: TODO を取得する
 
 まずは、ラムダ式と `Results` を使う素朴な形で CRUD の流れを確認します。
@@ -480,6 +447,41 @@ app.MapDelete("/todoitems/{id}", async (int id, TodoDb db) =>
 
 削除対象が見つかった場合だけ `Remove` して保存します。
 見つからない場合は `404 Not Found` を返します。
+
+## ラムダ式ではなくメソッドを呼び出す
+
+ここまでの例では、処理をラムダ式で直接書いていました。
+しかし `Map<HttpVerb>` の handler には、別に定義したメソッドを渡すこともできます。
+
+```csharp
+app.MapGet("/todoitems", GetAllTodos);
+
+static async Task<List<Todo>> GetAllTodos(TodoDb db)
+{
+    return await db.Todos.ToListAsync();
+}
+```
+
+この書き方でも、`GET /todoitems` にリクエストが来ると `GetAllTodos` メソッドが呼び出されます。
+`TodoDb db` もラムダ式のときと同じように DI から自動で渡されます。
+
+`POST` のようにリクエスト本文を受け取るメソッドも分けられます。
+
+```csharp
+app.MapPost("/todoitems", CreateTodo);
+
+static async Task<IResult> CreateTodo(Todo todo, TodoDb db)
+{
+    db.Todos.Add(todo);
+    await db.SaveChangesAsync();
+
+    return Results.Created($"/todoitems/{todo.Id}", todo);
+}
+```
+
+ラムダ式で書く方法と、メソッドに分ける方法のどちらも正しい書き方です。
+小さい処理ならラムダ式のままでも読みやすいです。
+処理が長くなったり、エンドポイントが増えたりしたら、メソッドに分けると `Program.cs` の見通しがよくなります。
 
 ## MapGroup API を使う
 
